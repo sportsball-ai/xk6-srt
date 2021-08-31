@@ -4,5 +4,6 @@ go 1.16
 
 require (
 	github.com/haivision/srtgo v0.0.0-20210809105856-d4ed7d4623c4 // indirect
+	github.com/stretchr/testify v1.7.0 // indirect
 	go.k6.io/k6 v0.33.0 // indirect
 )

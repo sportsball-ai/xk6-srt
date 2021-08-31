@@ -20,6 +20,14 @@ type Socket struct {
 	s *srtgo.SrtSocket
 }
 
+func (s *Socket) StreamMpegtsFile(path string) bool {
+	if err := StreamMPEGTSFile(path, s.s); err != nil {
+		ReportError(fmt.Errorf("error streaming mpegts file: %w", err))
+		return false
+	}
+	return true
+}
+
 func (s *Socket) Stats() *srtgo.SrtStats {
 	if stats, err := s.s.Stats(); err != nil {
 		ReportError(fmt.Errorf("error getting stats: %w", err))
