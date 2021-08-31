@@ -13,5 +13,5 @@ CGO_ENABLED=1 xk6 build
 Or to build using the latest:
 
 ```
-CGO_ENABLED=1 xk6 build --with=github.com/sportsball-ai/xk6-srt
+CGO_ENABLED=1 xk6 build --with github.com/sportsball-ai/xk6-srt
 ```

@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"time"
 
 	"github.com/haivision/srtgo"
 	"go.k6.io/k6/js/common"
 	"go.k6.io/k6/js/modules"
+	"go.k6.io/k6/lib"
+	"go.k6.io/k6/stats"
 )
 
 // Register the extension on module initialization, available to
@@ -20,8 +23,28 @@ type Socket struct {
 	s *srtgo.SrtSocket
 }
 
-func (s *Socket) StreamMpegtsFile(path string) bool {
-	if err := StreamMPEGTSFile(path, s.s); err != nil {
+func (s *Socket) StreamMpegtsFile(ctx context.Context, path string) bool {
+	socketStatsBefore := s.Stats()
+	err := StreamMPEGTSFile(path, s.s)
+	socketStatsAfter := s.Stats()
+
+	if state := lib.GetState(ctx); state != nil && socketStatsBefore != nil && socketStatsAfter != nil {
+		now := time.Now()
+
+		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+			Metric: DataSent,
+			Time:   now,
+			Value:  float64(socketStatsAfter.ByteSentTotal - socketStatsBefore.ByteSentTotal),
+		})
+
+		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+			Metric: DataRetransmitted,
+			Time:   now,
+			Value:  float64(socketStatsAfter.ByteRetransTotal - socketStatsBefore.ByteRetransTotal),
+		})
+	}
+
+	if err != nil {
 		ReportError(fmt.Errorf("error streaming mpegts file: %w", err))
 		return false
 	}
