@@ -67,12 +67,17 @@ func (s *Socket) finalize() {
 type SRT struct{}
 
 func (*SRT) Connect(ctxPtr *context.Context, host string, port uint16, opts map[string]string) interface{} {
-	s := &Socket{s: srtgo.NewSrtSocket(host, port, opts)}
-	runtime.SetFinalizer(s, (*Socket).finalize)
-	if err := s.s.Connect(); err != nil {
+	s := srtgo.NewSrtSocket(host, port, opts)
+	if s == nil {
+		ReportError(fmt.Errorf("unable to create socket"))
+		return nil
+	}
+	ret := &Socket{s: s}
+	runtime.SetFinalizer(ret, (*Socket).finalize)
+	if err := ret.s.Connect(); err != nil {
 		ReportError(fmt.Errorf("connection error: %w", err))
 		return nil
 	}
 	rt := common.GetRuntime(*ctxPtr)
-	return common.Bind(rt, s, ctxPtr)
+	return common.Bind(rt, ret, ctxPtr)
 }
