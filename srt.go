@@ -23,29 +23,129 @@ type Socket struct {
 	s *srtgo.SrtSocket
 }
 
-func (s *Socket) StreamMpegtsFile(ctx context.Context, path string) bool {
-	socketStatsBefore := s.Stats()
-	err := StreamMPEGTSFile(path, s.s)
-	socketStatsAfter := s.Stats()
-
-	if state := lib.GetState(ctx); state != nil && socketStatsBefore != nil && socketStatsAfter != nil {
+func countStats(ctx context.Context, before, after *srtgo.SrtStats) {
+	if state := lib.GetState(ctx); state != nil && before != nil && after != nil {
 		now := time.Now()
 
 		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
 			Metric: DataSent,
 			Time:   now,
-			Value:  float64(socketStatsAfter.ByteSentTotal - socketStatsBefore.ByteSentTotal),
+			Value:  float64(after.ByteSentTotal - before.ByteSentTotal),
+		})
+
+		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+			Metric: DataReceived,
+			Time:   now,
+			Value:  float64(after.ByteRecvTotal - before.ByteRecvTotal),
 		})
 
 		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
 			Metric: DataRetransmitted,
 			Time:   now,
-			Value:  float64(socketStatsAfter.ByteRetransTotal - socketStatsBefore.ByteRetransTotal),
+			Value:  float64(after.ByteRetransTotal - before.ByteRetransTotal),
+		})
+
+		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+			Metric: DataReceiveLoss,
+			Time:   now,
+			Value:  float64(after.ByteRcvLossTotal - before.ByteRcvLossTotal),
 		})
 	}
 
+}
+
+var backgroundLoops = map[int]*BackgroundLoop{}
+
+// Starts streaming an MPEG-TS file in the background. To stop it, pass the returned object to
+// Stop().
+func (s *Socket) StartMpegtsFileBackgroundLoop(path string) *BackgroundLoopHandle {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	socketStatsBefore := s.Stats()
+	go func() {
+		defer close(done)
+		for {
+			err := StreamMPEGTSFile(ctx, path, s.s)
+
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				ReportError(fmt.Errorf("error streaming mpegts file: %w", err))
+				time.Sleep(time.Second)
+			}
+		}
+	}()
+	id := len(backgroundLoops)
+	backgroundLoops[id] = &BackgroundLoop{
+		cancel:            cancel,
+		done:              done,
+		socket:            s,
+		socketStatsBefore: socketStatsBefore,
+	}
+	return &BackgroundLoopHandle{
+		Id: id,
+	}
+}
+
+type BackgroundLoopHandle struct {
+	Id int
+}
+
+func (*SRT) Stop(ctx context.Context, handle *BackgroundLoopHandle) {
+	backgroundLoops[handle.Id].Stop(ctx)
+}
+
+type BackgroundLoop struct {
+	cancel            func()
+	done              chan struct{}
+	socket            *Socket
+	socketStatsBefore *srtgo.SrtStats
+}
+
+func (l *BackgroundLoop) Stop(ctx context.Context) {
+	l.cancel()
+	<-l.done
+	socketStatsAfter := l.socket.Stats()
+	countStats(ctx, l.socketStatsBefore, socketStatsAfter)
+}
+
+// Streams an MPEG-TS file up to the server in real-time.
+func (s *Socket) StreamMpegtsFile(ctx context.Context, path string) bool {
+	socketStatsBefore := s.Stats()
+	err := StreamMPEGTSFile(ctx, path, s.s)
+	socketStatsAfter := s.Stats()
+
+	countStats(ctx, socketStatsBefore, socketStatsAfter)
+
 	if err != nil {
 		ReportError(fmt.Errorf("error streaming mpegts file: %w", err))
+		return false
+	}
+	return true
+}
+
+// Streams data from the server and discards it until at least n bytes are read.
+func (s *Socket) DiscardBytes(ctx context.Context, n int) bool {
+	buf := make([]byte, 1316)
+	socketStatsBefore := s.Stats()
+	var err error
+	for n > 0 && err == nil {
+		err = ctx.Err()
+		if err == nil {
+			if bytesRead, readErr := s.s.Read(buf); readErr == nil {
+				n -= bytesRead
+			} else {
+				err = readErr
+			}
+		}
+	}
+	socketStatsAfter := s.Stats()
+
+	countStats(ctx, socketStatsBefore, socketStatsAfter)
+
+	if err != nil {
+		ReportError(fmt.Errorf("error streaming bytes: %w", err))
 		return false
 	}
 	return true

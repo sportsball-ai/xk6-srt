@@ -1,13 +1,14 @@
 package srt
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"time"
 )
 
-func StreamMPEGTSFile(path string, w io.Writer) error {
+func StreamMPEGTSFile(ctx context.Context, path string, w io.Writer) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("error opening file: %w", err)
@@ -20,7 +21,9 @@ func StreamMPEGTSFile(path string, w io.Writer) error {
 	buf := make([]byte, 188)
 
 	for {
-		if _, err := io.ReadFull(f, buf); err == io.EOF {
+		if err := ctx.Err(); err != nil {
+			return ctx.Err()
+		} else if _, err := io.ReadFull(f, buf); err == io.EOF {
 			return nil
 		} else if err != nil {
 			return fmt.Errorf("error reading file: %w", err)
