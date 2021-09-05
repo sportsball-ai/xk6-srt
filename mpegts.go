@@ -18,28 +18,32 @@ func StreamMPEGTSFile(ctx context.Context, path string, w io.Writer) error {
 	var startPCR time.Duration
 	startTime := time.Now()
 	lastPCR := time.Duration(-1)
-	buf := make([]byte, 188)
+	buf := make([]byte, 1316)
 
 	for {
 		if err := ctx.Err(); err != nil {
 			return ctx.Err()
-		} else if _, err := io.ReadFull(f, buf); err == io.EOF {
+		} else if n, err := io.ReadFull(f, buf); err == io.EOF {
 			return nil
+		} else if err == io.ErrUnexpectedEOF {
+			buf = buf[:n]
 		} else if err != nil {
 			return fmt.Errorf("error reading file: %w", err)
 		}
-		if buf[0] != 0x47 {
+
+		p := buf[len(buf)-188:]
+		if p[0] != 0x47 {
 			return fmt.Errorf("incorrect sync byte")
 		}
 
 		pcr := lastPCR
-		if buf[3]&0x20 != 0 {
-			adaptationFieldLength := buf[4]
+		if p[3]&0x20 != 0 {
+			adaptationFieldLength := p[4]
 			if adaptationFieldLength > 183 {
 				return fmt.Errorf("adaptation field length is too long")
-			} else if adaptationFieldLength >= 7 && buf[5]&0x10 != 0 {
-				base := uint64(buf[6])<<25 | uint64(buf[7])<<17 | uint64(buf[8])<<9 | uint64(buf[9])<<1 | uint64(buf[10])>>7
-				ext := uint64(buf[10])&0x80<<1 | uint64(buf[11])
+			} else if adaptationFieldLength >= 7 && p[5]&0x10 != 0 {
+				base := uint64(p[6])<<25 | uint64(p[7])<<17 | uint64(p[8])<<9 | uint64(p[9])<<1 | uint64(p[10])>>7
+				ext := uint64(p[10])&0x80<<1 | uint64(p[11])
 				pcr27mhz := base*300 + ext
 				pcr = time.Duration(pcr27mhz/27) * time.Microsecond
 			}
@@ -61,6 +65,4 @@ func StreamMPEGTSFile(ctx context.Context, path string, w io.Writer) error {
 			return fmt.Errorf("write error: %w", err)
 		}
 	}
-
-	return nil
 }

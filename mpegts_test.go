@@ -10,11 +10,17 @@ import (
 
 type testWriter struct {
 	t             *testing.T
+	gotLast       bool
 	bytesReceived int
 }
 
 func (w *testWriter) Write(buf []byte) (int, error) {
-	require.Len(w.t, buf, 188)
+	if !w.gotLast && len(buf) != 1316 {
+		w.gotLast = true
+		assert.Equal(w.t, len(buf)%188, 0)
+	} else {
+		assert.Len(w.t, buf, 1316)
+	}
 	w.bytesReceived += len(buf)
 	return len(buf), nil
 }
