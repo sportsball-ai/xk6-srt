@@ -17,7 +17,7 @@ func StreamMPEGTSFile(ctx context.Context, path string, w io.Writer) error {
 
 	var startPCR time.Duration
 	startTime := time.Now()
-	lastPCR := time.Duration(-1)
+	lastPCR := time.Duration(0)
 	buf := make([]byte, 1316)
 
 	for {
@@ -49,15 +49,13 @@ func StreamMPEGTSFile(ctx context.Context, path string, w io.Writer) error {
 			}
 		}
 
-		if pcr >= 0 {
-			now := time.Now()
-			if lastPCR < 0 || pcr-lastPCR > 500*time.Millisecond || pcr-lastPCR < -500*time.Millisecond {
-				startPCR = pcr
-				startTime = now
-			}
-			if packetTime := startTime.Add(pcr - startPCR); now.Before(packetTime) {
-				time.Sleep(packetTime.Sub(now))
-			}
+		now := time.Now()
+		if pcr-lastPCR > time.Minute || pcr-lastPCR < -500*time.Millisecond {
+			startPCR = pcr
+			startTime = now
+		}
+		if packetTime := startTime.Add(pcr - startPCR); now.Before(packetTime) {
+			time.Sleep(packetTime.Sub(now))
 		}
 		lastPCR = pcr
 

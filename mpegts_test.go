@@ -3,6 +3,7 @@ package srt
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,9 @@ func TestStreamMPEGTSFile(t *testing.T) {
 	w := &testWriter{
 		t: t,
 	}
+	startTime := time.Now()
 	require.NoError(t, StreamMPEGTSFile(context.Background(), "testdata/testsrc.ts", w))
+	d := time.Since(startTime)
+	assert.Greater(t, d, 5500*time.Millisecond)
 	assert.Equal(t, w.bytesReceived, 438792)
 }
