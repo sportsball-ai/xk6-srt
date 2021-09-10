@@ -160,8 +160,12 @@ func (s *Socket) Stats() *srtgo.SrtStats {
 	}
 }
 
-func (s *Socket) finalize() {
+func (s *Socket) Close() {
 	s.s.Close()
+}
+
+func (s *Socket) finalize() {
+	s.Close()
 }
 
 type SRT struct{}
