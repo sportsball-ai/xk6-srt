@@ -1,10 +1,11 @@
 package srt
 
-import "go.k6.io/k6/stats"
+import "go.k6.io/k6/metrics"
 
 var (
-	DataSent          = stats.New("srt_data_sent", stats.Counter, stats.Data)
-	DataReceived      = stats.New("srt_data_received", stats.Counter, stats.Data)
-	DataRetransmitted = stats.New("srt_data_retransmitted", stats.Counter, stats.Data)
-	DataReceiveLoss   = stats.New("srt_data_receive_loss", stats.Counter, stats.Data)
+	registry          = metrics.NewRegistry()
+	DataSent          = registry.MustNewMetric("srt_data_sent", metrics.Counter, metrics.Data)
+	DataReceived      = registry.MustNewMetric("srt_data_received", metrics.Counter, metrics.Data)
+	DataRetransmitted = registry.MustNewMetric("srt_data_retransmitted", metrics.Counter, metrics.Data)
+	DataReceiveLoss   = registry.MustNewMetric("srt_data_receive_loss", metrics.Counter, metrics.Data)
 )
