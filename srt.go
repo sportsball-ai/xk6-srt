@@ -7,45 +7,69 @@ import (
 	"time"
 
 	"github.com/haivision/srtgo"
-	"go.k6.io/k6/js/common"
 	"go.k6.io/k6/js/modules"
-	"go.k6.io/k6/lib"
-	"go.k6.io/k6/stats"
+	"go.k6.io/k6/metrics"
 )
 
 // Register the extension on module initialization, available to
-// import from JS as "k6/x/redis".
+// import from JS as "k6/x/srt".
+// https://k6.io/docs/extensions/getting-started/create/javascript-extensions/#use-the-advanced-module-api
 func init() {
-	modules.Register("k6/x/srt", new(SRT))
+	modules.Register("k6/x/srt", &RootModule{})
+}
+
+type (
+	RootModule struct{}
+
+	ModuleInstance struct {
+		srt *SRT
+	}
+)
+
+var (
+    _ modules.Instance = &ModuleInstance{}
+    _ modules.Module   = &RootModule{}
+)
+
+func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
+	return &ModuleInstance{srt: &SRT{vu: vu}}
+}
+
+func (mi *ModuleInstance) Exports() modules.Exports {
+	return modules.Exports {
+		Default: mi.srt,
+	}
 }
 
 type Socket struct {
+	vu modules.VU
 	s *srtgo.SrtSocket
 }
 
-func countStats(ctx context.Context, before, after *srtgo.SrtStats) {
-	if state := lib.GetState(ctx); state != nil && before != nil && after != nil {
+func countStats(vu modules.VU, before, after *srtgo.SrtStats) {
+	if state := vu.State(); state != nil && before != nil && after != nil {
+		ctx := vu.Context()
 		now := time.Now()
 
-		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+		metrics.PushIfNotDone(ctx, state.Samples, metrics.Sample{
 			Metric: DataSent,
 			Time:   now,
 			Value:  float64(after.ByteSentTotal - before.ByteSentTotal),
 		})
 
-		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+		metrics.PushIfNotDone(ctx, state.Samples, metrics.Sample{
 			Metric: DataReceived,
 			Time:   now,
 			Value:  float64(after.ByteRecvTotal - before.ByteRecvTotal),
 		})
 
-		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+		metrics.PushIfNotDone(ctx, state.Samples, metrics.Sample{
 			Metric: DataRetransmitted,
 			Time:   now,
 			Value:  float64(after.ByteRetransTotal - before.ByteRetransTotal),
 		})
 
-		stats.PushIfNotDone(ctx, state.Samples, stats.Sample{
+		metrics.PushIfNotDone(ctx, state.Samples, metrics.Sample{
 			Metric: DataReceiveLoss,
 			Time:   now,
 			Value:  float64(after.ByteRcvLossTotal - before.ByteRcvLossTotal),
@@ -92,8 +116,8 @@ type BackgroundLoopHandle struct {
 	Id int
 }
 
-func (*SRT) Stop(ctx context.Context, handle *BackgroundLoopHandle) {
-	backgroundLoops[handle.Id].Stop(ctx)
+func (srt *SRT) Stop(handle *BackgroundLoopHandle) {
+	backgroundLoops[handle.Id].Stop()
 }
 
 type BackgroundLoop struct {
@@ -103,20 +127,20 @@ type BackgroundLoop struct {
 	socketStatsBefore *srtgo.SrtStats
 }
 
-func (l *BackgroundLoop) Stop(ctx context.Context) {
+func (l *BackgroundLoop) Stop() {
 	l.cancel()
 	<-l.done
 	socketStatsAfter := l.socket.Stats()
-	countStats(ctx, l.socketStatsBefore, socketStatsAfter)
+	countStats(l.socket.vu, l.socketStatsBefore, socketStatsAfter)
 }
 
 // Streams an MPEG-TS file up to the server in real-time.
-func (s *Socket) StreamMpegtsFile(ctx context.Context, path string) bool {
+func (s *Socket) StreamMpegtsFile(path string) bool {
 	socketStatsBefore := s.Stats()
-	err := StreamMPEGTSFile(ctx, path, s.s)
+	err := StreamMPEGTSFile(s.vu.Context(), path, s.s)
 	socketStatsAfter := s.Stats()
 
-	countStats(ctx, socketStatsBefore, socketStatsAfter)
+	countStats(s.vu, socketStatsBefore, socketStatsAfter)
 
 	if err != nil {
 		ReportError(fmt.Errorf("error streaming mpegts file: %w", err))
@@ -126,9 +150,10 @@ func (s *Socket) StreamMpegtsFile(ctx context.Context, path string) bool {
 }
 
 // Streams data from the server and discards it until at least n bytes are read.
-func (s *Socket) DiscardBytes(ctx context.Context, n int) bool {
+func (s *Socket) DiscardBytes(n int) bool {
 	buf := make([]byte, 1316)
 	socketStatsBefore := s.Stats()
+	ctx := s.vu.Context()
 	var err error
 	for n > 0 && err == nil {
 		err = ctx.Err()
@@ -142,7 +167,7 @@ func (s *Socket) DiscardBytes(ctx context.Context, n int) bool {
 	}
 	socketStatsAfter := s.Stats()
 
-	countStats(ctx, socketStatsBefore, socketStatsAfter)
+	countStats(s.vu, socketStatsBefore, socketStatsAfter)
 
 	if err != nil {
 		ReportError(fmt.Errorf("error streaming bytes: %w", err))
@@ -168,20 +193,22 @@ func (s *Socket) finalize() {
 	s.Close()
 }
 
-type SRT struct{}
+type SRT struct {
+	vu modules.VU
+}
 
-func (*SRT) Connect(ctxPtr *context.Context, host string, port uint16, opts map[string]string) interface{} {
+func (srt *SRT) Connect(host string, port uint16, opts map[string]string) interface{} {
 	s := srtgo.NewSrtSocket(host, port, opts)
 	if s == nil {
 		ReportError(fmt.Errorf("unable to create socket"))
 		return nil
 	}
-	ret := &Socket{s: s}
+	ret := &Socket{vu: srt.vu, s: s}
 	runtime.SetFinalizer(ret, (*Socket).finalize)
 	if err := ret.s.Connect(); err != nil {
-		ReportError(fmt.Errorf("connection error: %w", err))
-		return nil
+			ReportError(fmt.Errorf("connection error: %w", err))
+			return nil
 	}
-	rt := common.GetRuntime(*ctxPtr)
-	return common.Bind(rt, ret, ctxPtr)
+	rt := srt.vu.Runtime()
+	return rt.ToValue(ret).ToObject(rt)
 }
