@@ -89,8 +89,11 @@ func (srt *SRT) StartMpegtsFileBackgroundLoop(host string, port uint16, opts map
 	go func() {
 		defer close(done)
 		for {
-			s := srt.Connect(host, port, opts).(Socket)
-			err := StreamMPEGTSFile(ctx, path, s.s)
+			s, e := srt.connect(host, port, opts)
+			if e != nil {
+				return
+			}
+			err := StreamMPEGTSFile(ctx, path, s)
 
 			if err != nil {
 				if ctx.Err() != nil {
@@ -206,4 +209,19 @@ func (srt *SRT) Connect(host string, port uint16, opts map[string]string) interf
 	}
 	rt := srt.vu.Runtime()
 	return rt.ToValue(ret).ToObject(rt)
+}
+
+func (srt *SRT) connect(host string, port uint16, opts map[string]string) (*srtgo.SrtSocket, error) {
+	s := srtgo.NewSrtSocket(host, port, opts)
+	if s == nil {
+		err := fmt.Errorf("unable to create socket")
+		ReportError(err)
+		return nil, err
+	}
+	if err := s.Connect(); err != nil {
+		err := fmt.Errorf("connection error: %w", err)
+		ReportError(err)
+		return nil, err
+	}
+	return s, nil
 }
