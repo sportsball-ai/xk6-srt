@@ -27,8 +27,8 @@ type (
 )
 
 var (
-    _ modules.Instance = &ModuleInstance{}
-    _ modules.Module   = &RootModule{}
+	_ modules.Instance = &ModuleInstance{}
+	_ modules.Module   = &RootModule{}
 )
 
 func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
@@ -36,14 +36,14 @@ func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
 }
 
 func (mi *ModuleInstance) Exports() modules.Exports {
-	return modules.Exports {
+	return modules.Exports{
 		Default: mi.srt,
 	}
 }
 
 type Socket struct {
 	vu modules.VU
-	s *srtgo.SrtSocket
+	s  *srtgo.SrtSocket
 }
 
 func countStats(vu modules.VU, before, after *srtgo.SrtStats) {
@@ -82,14 +82,18 @@ var backgroundLoops = map[int]*BackgroundLoop{}
 
 // Starts streaming an MPEG-TS file in the background. To stop it, pass the returned object to
 // Stop().
-func (s *Socket) StartMpegtsFileBackgroundLoop(path string) *BackgroundLoopHandle {
+func (srt *SRT) StartMpegtsFileBackgroundLoop(host string, port uint16, opts map[string]string, path string) *BackgroundLoopHandle {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	socketStatsBefore := s.Stats()
+
 	go func() {
 		defer close(done)
 		for {
-			err := StreamMPEGTSFile(ctx, path, s.s)
+			s, e := srt.connect(host, port, opts)
+			if e != nil {
+				return
+			}
+			err := StreamMPEGTSFile(ctx, path, s)
 
 			if err != nil {
 				if ctx.Err() != nil {
@@ -102,10 +106,8 @@ func (s *Socket) StartMpegtsFileBackgroundLoop(path string) *BackgroundLoopHandl
 	}()
 	id := len(backgroundLoops)
 	backgroundLoops[id] = &BackgroundLoop{
-		cancel:            cancel,
-		done:              done,
-		socket:            s,
-		socketStatsBefore: socketStatsBefore,
+		cancel: cancel,
+		done:   done,
 	}
 	return &BackgroundLoopHandle{
 		Id: id,
@@ -121,17 +123,13 @@ func (srt *SRT) Stop(handle *BackgroundLoopHandle) {
 }
 
 type BackgroundLoop struct {
-	cancel            func()
-	done              chan struct{}
-	socket            *Socket
-	socketStatsBefore *srtgo.SrtStats
+	cancel func()
+	done   chan struct{}
 }
 
 func (l *BackgroundLoop) Stop() {
 	l.cancel()
 	<-l.done
-	socketStatsAfter := l.socket.Stats()
-	countStats(l.socket.vu, l.socketStatsBefore, socketStatsAfter)
 }
 
 // Streams an MPEG-TS file up to the server in real-time.
@@ -206,9 +204,24 @@ func (srt *SRT) Connect(host string, port uint16, opts map[string]string) interf
 	ret := &Socket{vu: srt.vu, s: s}
 	runtime.SetFinalizer(ret, (*Socket).finalize)
 	if err := ret.s.Connect(); err != nil {
-			ReportError(fmt.Errorf("connection error: %w", err))
-			return nil
+		ReportError(fmt.Errorf("connection error: %w", err))
+		return nil
 	}
 	rt := srt.vu.Runtime()
 	return rt.ToValue(ret).ToObject(rt)
+}
+
+func (srt *SRT) connect(host string, port uint16, opts map[string]string) (*srtgo.SrtSocket, error) {
+	s := srtgo.NewSrtSocket(host, port, opts)
+	if s == nil {
+		err := fmt.Errorf("unable to create socket")
+		ReportError(err)
+		return nil, err
+	}
+	if err := s.Connect(); err != nil {
+		err := fmt.Errorf("connection error: %w", err)
+		ReportError(err)
+		return nil, err
+	}
+	return s, nil
 }
