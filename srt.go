@@ -89,18 +89,27 @@ func (srt *SRT) StartMpegtsFileBackgroundLoop(host string, port uint16, opts map
 	go func() {
 		defer close(done)
 		for {
-			s, e := srt.connect(host, port, opts)
-			if e != nil {
-				return
-			}
-			err := StreamMPEGTSFile(ctx, path, s)
-
-			if err != nil {
-				if ctx.Err() != nil {
-					return
+			e := func() error { // So that our defer statement executes every iteration
+				s, e := srt.connect(host, port, opts)
+				if s != nil {
+					defer s.Close()
 				}
-				ReportError(fmt.Errorf("error streaming mpegts file: %w", err))
-				time.Sleep(time.Second)
+				if e != nil {
+					return e
+				}
+				err := StreamMPEGTSFile(ctx, path, s)
+
+				if err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					ReportError(fmt.Errorf("error streaming mpegts file: %w", err))
+					time.Sleep(time.Second)
+				}
+				return nil
+			}()
+			if e != nil {
+				break
 			}
 		}
 	}()
