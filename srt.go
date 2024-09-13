@@ -52,27 +52,35 @@ func countStats(vu modules.VU, before, after *srtgo.SrtStats) {
 		now := time.Now()
 
 		metrics.PushIfNotDone(ctx, state.Samples, metrics.Sample{
-			Metric: DataSent,
-			Time:   now,
-			Value:  float64(after.ByteSentTotal - before.ByteSentTotal),
+			TimeSeries: metrics.TimeSeries{
+				Metric: DataSent,
+			},
+			Time:  now,
+			Value: float64(after.ByteSentTotal - before.ByteSentTotal),
 		})
 
 		metrics.PushIfNotDone(ctx, state.Samples, metrics.Sample{
-			Metric: DataReceived,
-			Time:   now,
-			Value:  float64(after.ByteRecvTotal - before.ByteRecvTotal),
+			TimeSeries: metrics.TimeSeries{
+				Metric: DataReceived,
+			},
+			Time:  now,
+			Value: float64(after.ByteRecvTotal - before.ByteRecvTotal),
 		})
 
 		metrics.PushIfNotDone(ctx, state.Samples, metrics.Sample{
-			Metric: DataRetransmitted,
-			Time:   now,
-			Value:  float64(after.ByteRetransTotal - before.ByteRetransTotal),
+			TimeSeries: metrics.TimeSeries{
+				Metric: DataRetransmitted,
+			},
+			Time:  now,
+			Value: float64(after.ByteRetransTotal - before.ByteRetransTotal),
 		})
 
 		metrics.PushIfNotDone(ctx, state.Samples, metrics.Sample{
-			Metric: DataReceiveLoss,
-			Time:   now,
-			Value:  float64(after.ByteRcvLossTotal - before.ByteRcvLossTotal),
+			TimeSeries: metrics.TimeSeries{
+				Metric: DataReceiveLoss,
+			},
+			Time:  now,
+			Value: float64(after.ByteRcvLossTotal - before.ByteRcvLossTotal),
 		})
 	}
 
